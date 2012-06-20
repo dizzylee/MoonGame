@@ -121,9 +121,9 @@ class Item:
 		message('You dropped a ' + self.owner.name + '.', libtcod.yellow)
 
 class Tile:
-	def __init__(self, blocked, sort, block_sight = None):
+	def __init__(self, blocked, sort, block_sight = None, explored = False):
 		self.blocked = blocked
-		self.explored = False
+		self.explored = explored
 		self.sort = sort
 
 		if block_sight is None: block_sight = blocked
@@ -214,6 +214,7 @@ def make_map():
 
 	for y in range(MAP_HEIGHT):
 		for x in range(MAP_WIDTH):
+			map[x][y].explored = False
 			if map[x][y].sort != 'floor':
 				map[x][y].blocked = True
 				map[x][y].block_sight = True
@@ -396,6 +397,20 @@ def use_oxygen():
 	message('You replenish your oxygen tanks!', libtcod.light_violet)
 	player.spaceman.replenish(OXYGEN_AMOUNT)
 
+def main_menu():
+	img = libtcod.image_load('moon.png')
+
+	while not libtcod.console_is_window_closed():
+		libtcod.image_blit_2x(img, 0, 0, 0)
+
+		choice = menu('', ['Play a new game', 'Continue last game', 'Quit'], 24)
+
+		if choice == 0:
+			new_game()
+			play_game()
+		elif choice == 2:
+			break
+
 def new_game():
 	global player, npc, inventory, game_msgs, game_state, objects
 
@@ -475,5 +490,4 @@ def play_game():
 			message(npc.name + ' is dead!', libtcod.dark_magenta)
 			adam_state = 'dead'
 
-new_game()
-play_game()
+main_menu()
