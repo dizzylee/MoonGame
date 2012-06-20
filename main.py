@@ -1,5 +1,6 @@
 import libtcodpy as libtcod
 import textwrap
+import shelve
 
 SCREEN_WIDTH = 80
 SCREEN_HEIGHT = 50
@@ -352,6 +353,9 @@ def menu(header, options, width):
 	if len(options) > 16: raise ValueError('Cannot have a menu with more than 26 options.')
 
 	header_height = libtcod.console_height_left_rect(con, 0, 0, width, SCREEN_HEIGHT, header)
+	if header == '':
+		header_height = 0
+
 	height = len(options) + header_height
 
 	window = libtcod.console_new(width, height)
@@ -375,9 +379,15 @@ def menu(header, options, width):
 	libtcod.console_flush()
 	key = libtcod.console_wait_for_keypress(True)
 
+	if key.vk == libtcod.KEY_ENTER and key.lalt:
+		libtcod.console_set_fullscreen(not libtcod.console_is_fullscreen())
+
 	index = key.c - ord('a')
 	if index >= 0 and index < len(options): return index
 	return None
+
+def msgbox(text, width=50):
+	menu(text, [], width)
 
 def inventory_menu(header):
 	if len(inventory) == 0:
@@ -403,10 +413,21 @@ def main_menu():
 	while not libtcod.console_is_window_closed():
 		libtcod.image_blit_2x(img, 0, 0, 0)
 
+		libtcod.console_set_foreground_color(0, libtcod.light_yellow)
+		libtcod.console_print_center(0, SCREEN_WIDTH/2, (SCREEN_WIDTH/2)-4, libtcod.BKGND_NONE, 'Moon Game')
+		libtcod.console_print_center(0, SCREEN_WIDTH/2, SCREEN_HEIGHT-2, libtcod.BKGND_NONE, 'James Disley')
+
 		choice = menu('', ['Play a new game', 'Continue last game', 'Quit'], 24)
 
 		if choice == 0:
 			new_game()
+			play_game()
+		if choice == 1:
+			try:
+				load_game()
+			except:
+				msgbox('\n No saved game to load.\n', 24)
+				continue
 			play_game()
 		elif choice == 2:
 			break
@@ -417,8 +438,8 @@ def new_game():
 	#create object representing the player and the npc
 	spaceman_component = Spaceman(80)
 	player = Object(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, '@', libtcod.white, 'John', blocks=True, spaceman=spaceman_component)
-	spaceman_component = Spaceman(30)
-	npc = Object(SCREEN_WIDTH/2 - 5, SCREEN_HEIGHT/2, '@', libtcod.yellow, 'Adam', blocks=True, spaceman=spaceman_component)
+	spaceman_component2 = Spaceman(30)
+	npc = Object(SCREEN_WIDTH/2 - 5, SCREEN_HEIGHT/2, '@', libtcod.yellow, 'Adam', blocks=True, spaceman=spaceman_component2)
 
 	#create the initial objects
 	item_component = Item(use_function=use_oxygen)
@@ -435,6 +456,19 @@ def new_game():
 
 	initialize_fov()
 
+	render_all()
+	libtcod.console_flush()
+
+	pop_up(	'Welcome to the game.\n\n' +
+		'Pressing the arrow keys will allow you to move around.' +
+		'\n\nLook out for oxygen packs: \'!\'\n\n' + 
+		'To pick up an oxygen pack press \'g\' while standing over it.\n\n' + 
+		'To use an oxygen pack open up your inventory by pressing \'i\' ' + 
+		'and then pressing the corresponding letter.\n\n' +
+		'Your oxygen is already running out.\n\n' +
+		'Press any key to continue\n\n' +
+		'Oh, and try not to die.')
+
 def initialize_fov():
 	global fov_recompute, fov_map
 	fov_recompute = True
@@ -444,10 +478,12 @@ def initialize_fov():
 		for x in range(MAP_WIDTH):
 			libtcod.map_set_properties(fov_map, x, y, not map[x][y].block_sight, not map[x][y].blocked)
 
+	libtcod.console_clear(con)
+
 def play_game():
 	global game_state, adam_state
 	
-	game_state = 'start'
+	game_state = 'playing'
 	player_action = None
 	adam_state = 'alive'
 
@@ -457,21 +493,10 @@ def play_game():
 		render_all()
 		libtcod.console_flush()
 
-		if game_state == 'start':
-			pop_up(	'Welcome to the game.\n\n' +
-					'Pressing the arrow keys will allow you to move around.' +
-					'\n\nLook out for oxygen packs: \'!\'\n\n' + 
-					'To pick up an oxygen pack press \'g\' while standing over it.\n\n' + 
-					'To use an oxygen pack open up your inventory by pressing \'i\' ' + 
-					'and then pressing the corresponding letter.\n\n' +
-					'Your oxygen is already running out.\n\n' +
-					'Press any key to continue\n\n' +
-					'Oh, and try not to die.')
-			game_state = 'playing'
-
 		#handle keys and exit game if needed
 		player_action = handle_keys()
 		if player_action == 'exit':
+			save_game()
 			break
 
 		frame_counter += 1
@@ -489,5 +514,37 @@ def play_game():
 		if npc.spaceman.oxygen <= 0 and adam_state == 'alive':
 			message(npc.name + ' is dead!', libtcod.dark_magenta)
 			adam_state = 'dead'
+
+def save_game():
+	choice = menu('Do you want to save your game?\n(This will overwrite any previous saves)\n', ['Yes', 'No', 'Cancel'], 30)
+
+	print choice
+
+	if choice == 0:
+		file = shelve.open('savegame', 'n')
+		file['map'] = map
+		file['objects'] = objects
+		file['player_index'] = objects.index(player)
+		file['npc_index'] = objects.index(npc)
+		file['inventory'] = inventory
+		file['game_msgs'] = game_msgs
+		file['game_state'] = game_state
+		file.close()
+	elif choice != 1 : play_game()
+
+def load_game():
+	global map, objects, player, npc, inventory, game_msgs, game_state
+
+	file = shelve.open('savegame', 'r')
+	map = file['map']
+	objects = file['objects']
+	player = objects[file['player_index']]
+	npc = objects[file['npc_index']]
+	inventory = file['inventory']
+	game_msgs = file['game_msgs']
+	game_state = file['game_state']
+	file.close()
+
+	initialize_fov()
 
 main_menu()
